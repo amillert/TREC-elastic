@@ -113,6 +113,7 @@ def evaluateQuery(allQueries: List[str], query: str) -> None:
     print("io49\t%.2f\t\t%.2f" % (float(bio49results[query][0]), float(bio49results[query][1])))
 
     resultsAmount = 100
+    resultsDic = defaultdict(list)
 
     for queryExploded in explodeQueries(query):
         resultsLines = []
@@ -133,41 +134,28 @@ def evaluateQuery(allQueries: List[str], query: str) -> None:
                   decode("utf-8").
                   replace("\t\t", " "))
 
-        infAPs = []
-        infNDCGs = []
+        for line in output.split("\n")[:-1]:
+            (resultType, _, result) = line.split()
+            if resultType in ["infAP", "infNDCG"]:
+                resultsDic[resultType].append(result)
 
-        for line in output.split("\n"):
-            tokens = line.split("\t")
-            if tokens[0] == "infAP":
-                infAPs.append(float(tokens[2]))
-                # infAP = float(tokens[2])
-            if tokens[0] == "infNDCG":
-                infNDCGs.append(float(tokens[2]))
-        # infNDCGs.append(infNDCG)
-
-        for i in range(len(infAPs)):
-            dap = infAPs[i] - bio49results[query][0]
-            dndcg = infNDCGs[i] - bio49results[query][1]
-            sap = '+'
-            if dap < 0:
-                sap = ''
-            snd = '+'
-            if dndcg < 0:
-                snd = ''
-            print(str(i) + '\t%.3f(%s%.3f)\t%.3f(%s%.3f)' %
-                  (infAPs[i], sap, dap, infNDCGs[i], snd, dndcg))
+    for i in range(len(resultsDic["infAp"])):
+        dap = resultsDic["infAp"][i] - bio49results[query][0]
+        dndcg = resultsDic["infNDCG"][i] - bio49results[query][1]
+        print(str(i) + '\t%.3f(%s%.3f)\t%.3f(%s%.3f)' %
+              (resultsDic["infAP"][i],
+               "+" if dap >= 0 else "",
+               dap, resultsDic["infNDCGs"][i],
+               "+" if dndcg >= 0 else "",
+               dndcg))
 
 
 if __name__ == "__main__":
-    # prepareElasticIndex()
-    # for x in explodeQueries(
-    #         'CheY^{8,12,0.5} chey2^10 chey* protein chemotaxis sequencing^0.0 bacterial'): print(x)
+    prepareElasticIndex()
     allQueries = [x.strip() for x in open(os.path.join(os.getcwd(), "queries"), "r").readlines()]
-    # res = []
-    # for query in queries:
-    #    res.append(explodeQueries(query))
 
-    # print(res)
+    # make it look for the best one out of these:
+    # mainQuery = "proteomic^{0.0,2.5,0.1} regulation calcium^{0.0,1.5,0.0} blind^{0.05,0.5,0.0.1} drosophila^{0.1,0.5,0.1} melanogaster^{0.1,0.5,0.1}"
 
     mainQuery = "proteomic^0.5 regulation calcium^1.4 blind^0.05 drosophila^0.5 melanogaster^0.5"
     # mainQuery = "proteomic regulation calcium blind d melanogaster"
