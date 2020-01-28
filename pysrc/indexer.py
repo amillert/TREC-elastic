@@ -18,6 +18,7 @@ ES = es.Elasticsearch(hosts=[{"host": "localhost", "port": 9200}])
 indexBody = {"settings": {"number_of_shards": 1, "number_of_replicas": 1},
              "mappings": {"properties": {
                  "id": {"type": "text"}, "contents": {"type": "text"}}}}
+PROJECT_DIR = os.path.dirname(os.getcwd())
 
 
 # @profile
@@ -50,10 +51,10 @@ def explodeQueries(query: str) -> Iterator[Dict[str, Dict[str, Dict[str, Any]]]]
 # @profile
 def prepareQRELs() -> None:
     querySpecificQREL = defaultdict(list)
-    for line in tqdm(open(os.path.join(os.path.dirname(os.getcwd()), "qrelsBiocaddie"), "r").readlines()):
+    for line in tqdm(open(os.path.join(PROJECT_DIR, "qrelsBiocaddie"), "r").readlines()):
         querySpecificQREL[line.split()[0]].append(line)
     for key, lines in querySpecificQREL.items():
-        with open(os.path.join(os.path.join(os.path.dirname(os.getcwd()), "splitQRELs"),
+        with open(os.path.join(os.path.join(PROJECT_DIR, "splitQRELs"),
                                f"qrelsBiocaddie_q{key}"), "w+") as file:
             for line in lines:
                 file.write(line)
@@ -71,7 +72,7 @@ def splitFilesAmongCPUCores(docsPath: str) -> Dict[int, List[str]]:
 
 def outerJob(fileNames: List[str]) -> Iterator[Dict]:
     for fileName in tqdm(fileNames):
-        text = open(os.path.join(os.path.join(os.path.dirname(os.getcwd()), "docs"), fileName), "r").read()
+        text = open(os.path.join(os.path.join(PROJECT_DIR, "docs"), fileName), "r").read()
         text = ' '.join(text[text.find(BEG) + len(BEG):text.find(END)].split())
         yield {
             "_id": fileName,
@@ -91,7 +92,7 @@ def prepareElasticIndex(delete: bool = False) -> None:
     if delete:
         ES.indices.delete(index='biocaddie')
         ES.indices.create(index="biocaddie", body=indexBody)
-    docsPath = os.path.join(os.path.dirname(os.getcwd()), "docs")
+    docsPath = os.path.join(PROJECT_DIR, "docs")
     fileNames = list(splitFilesAmongCPUCores(docsPath).values())
     with mp.Pool(processes=CPU_CORES) as pool:
         result = pool.map(job, fileNames)
@@ -100,12 +101,11 @@ def prepareElasticIndex(delete: bool = False) -> None:
 
 
 def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> None:
-    cwd = os.path.dirname(os.getcwd())
-    elasticResultsPath = os.path.join(cwd, "elasticResults")
+    elasticResultsPath = os.path.join(PROJECT_DIR, "elasticResults")
     baseAllQueries.append("all")
     bio49results = defaultdict(list)
 
-    for i, result in enumerate(open(os.path.join(cwd, "bio49")).readlines()):
+    for i, result in enumerate(open(os.path.join(PROJECT_DIR, "bio49")).readlines()):
         bio49results[baseAllQueries[i % 16]].append(result.strip())
 
     print("\t\tinfAP\t\tinfNDCG")
@@ -127,7 +127,7 @@ def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> 
         (open(os.path.join(elasticResultsPath, f"ES_biocaddie_baseline_{whichFile}"), "w+").
          writelines(resultsLines))
 
-        cmd = f"perl {os.path.join(cwd, 'sample_eval.pl')} {os.path.join(cwd, 'splitQRELs/qrelsBiocaddie_q8')} {os.path.join(cwd, f'elasticResults/ES_biocaddie_baseline_{whichFile}')}"
+        cmd = f"perl {os.path.join(PROJECT_DIR, 'sample_eval.pl')} {os.path.join(PROJECT_DIR, 'splitQRELs/qrelsBiocaddie_q8')} {os.path.join(PROJECT_DIR, f'elasticResults/ES_biocaddie_baseline_{whichFile}')}"
         output = (subprocess.
                   check_output(cmd, shell=True).
                   decode("utf-8").
@@ -157,7 +157,7 @@ def singleBaseFormQuery(query: str) -> str:
 
 
 def obtainBaseFormQueries(queriesPath: str = "queries") -> List[str]:
-    allQueries = [x.strip() for x in open(os.path.join(os.path.dirname(os.getcwd()), queriesPath), "r").readlines()]
+    allQueries = [x.strip() for x in open(os.path.join(PROJECT_DIR, queriesPath), "r").readlines()]
     return [singleBaseFormQuery(query) for query in allQueries]
 
 
