@@ -6,6 +6,7 @@ from itertools import cycle, product
 from collections import defaultdict
 from tqdm import tqdm
 from typing import Any, List, Dict, Iterator
+from collections import Counter
 
 import elasticsearch as es
 from elasticsearch import helpers
@@ -101,14 +102,30 @@ def prepareElasticIndex(delete: bool = False) -> None:
     print(ES.cat.count("biocaddie", params={"format": "text"}))
 
 
-def enrichQuery(query: str) -> str:
-    print(query)
-    add = "RNA seq wK w1118 genome gene S2 protein" + "regulation CTCF dependent nucleosom occupacy ChIP treat histone male chro gram"
-    xd = ES.search(index="biocaddie", body={"query": {"query_string": {"query": query + add}}},
-                   size=100)
-    import json
-    print(json.dumps(xd, indent=2))
-    exit(11)
+def enrichQuery(query: str) -> List[str]:
+    qrels8 = [line.split() for line in open(os.path.join(PROJECT_DIR, "splitQRELs/qrelsBiocaddie_q8")).readlines()]
+    relevant = [docId for (_, _, docId, _, relevancy) in qrels8 if relevancy == '2']
+    partiallyRelevant = [docId for (_, _, docId, _, relevancy) in qrels8 if relevancy == '1']
+    irrelevant = [docId for (_, _, docId, _, relevancy) in qrels8 if relevancy in ['0', '-1']]
+
+    tokens = []
+    for rel in relevant + partiallyRelevant:
+        text = open(os.path.join(PROJECT_DIR, f"docs/{rel}")).read()
+        tokens.extend(text[text.find(BEG) + len(BEG):text.find(END)].split())
+
+    stopwords = open(os.path.join(PROJECT_DIR, "stopwords")).read().split()
+    relevantTokens2Cnt = Counter([token.lower() for token in tokens if token.lower() not in stopwords])
+
+    tokens = []
+    for irr in random.sample(irrelevant, 2000):
+        text = open(os.path.join(PROJECT_DIR, f"docs/{irr}")).read()
+        tokens.extend(text[text.find(BEG) + len(BEG):text.find(END)].split())
+
+    irrelevantTokens2Cnt = Counter([token.lower() for token in tokens if token.lower() not in stopwords])
+
+    # print(relevantTokens2Cnt.most_common(20))
+    # print(irrelevantTokens2Cnt.most_common(20))
+    return [token for token, count in relevantTokens2Cnt.most_common(20) if token not in [t for t, c in irrelevantTokens2Cnt.most_common(10)]]
 
 
 def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> None:
@@ -120,14 +137,12 @@ def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> 
         bio49results[baseAllQueries[i % 16]].append(float(result.strip()))
 
     print("\t\tinfAP\t\tinfNDCG")
-    print("io49\t%.2f\t\t%.2f" %
+    print("io49\t%.4f\t\t%.4f" %
           (float(bio49results[baseFormQuery][0]), float(bio49results[baseFormQuery][1])))
 
     resultsAmount = 1000
-    resultsDic = defaultdict(list)
 
     for queryExploded in explodeQueries(query):
-        # enrichedQuery = enrichQuery(baseFormQuery)
         resultsLines = []
         result = ES.search(index="biocaddie", body=queryExploded, size=resultsAmount)
         for i in range(resultsAmount):
@@ -149,28 +164,21 @@ def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> 
          os.listdir(elasticResultsPath)]
 
         ((_, _, infAP), (_, _, infNDCG)) = (line.split() for line in output.split("\n")[:2])
-        if (float(infAP) >= float(bio49results[baseFormQuery][0]) or
-                float(infNDCG) >= float(bio49results[baseFormQuery][1])):
-            resultsDic["infAP"].append(float(infAP))
-            resultsDic["infNDCG"].append(float(infNDCG))
-            resultsDic["query"].append(queryExploded["query"]["query_string"]["query"])
-
-    for i in range(len(resultsDic["infAP"])):
-        try:
-            dap = resultsDic["infAP"][i] - bio49results[baseFormQuery][0]
-            dndcg = resultsDic["infNDCG"][i] - bio49results[baseFormQuery][1]
+        infAP = float(infAP)
+        infNDCG = float(infNDCG)
+        dap = infAP - bio49results[baseFormQuery][0]
+        dndcg = infNDCG - bio49results[baseFormQuery][1]
+        if dap > 0 or dndcg > 0:
             sap = '' if dap < 0 else '+'
             snd = '' if dndcg < 0 else '+'
             print('8\t%.3f(%s%.3f)\t%.3f(%s%.3f) <~ %s' % (
-                resultsDic["infAP"][i],
+                infAP,
                 sap,
                 dap,
-                resultsDic["infNDCG"][i],
+                infNDCG,
                 snd,
                 dndcg,
-                resultsDic["query"][i]))
-        except:
-            print(f"for some reason can't do for: {i}")
+                queryExploded))
 
 
 def singleBaseFormQuery(query: str) -> str:
@@ -198,7 +206,20 @@ if __name__ == "__main__":
     baseAllQueries = obtainBaseFormQueries()
 
     baseFormQuery = baseAllQueries[7]
+    query = "proteomic regulation calcium " \
+                "drosophila melanogaster RNA " \
+                "gene S2 male mRNA"
+
+    # enriched = enrichQuery(query)
+    # enriched = ' '.join(['vitamin^{0.1,0.8,0.1}', 'd^0.3', 'analysis^0.2', 'regulation^0.8', 'role^0.2', 'muscle^{0.5,2.5,0.1}', 'type^0.5', 'mice^{0.1,1.8,0.1}', 'response^{0.1,1.2,0.1}'])
+    enriched = ' '.join(['vitamin^{0.1,0.8,0.1}', 'muscle^{0.5,2.5,0.1}', 'mice^{0.1,1.8,0.1}', 'response^{0.1,1.2,0.1}'])
+    #print(enriched)
+    # exit(12)
     # query = setWeightsForMainQuery(baseFormQuery)
+
+    # dudi = "proteomic^0.5 regulation calcium^1.4 blind^0.05 drosophila^0.5 melanogaster^0.5"
+    # evaluateQuery(baseAllQueries, dudi, baseFormQuery)
+    # print()
 
     # query = "proteomic^1.2 regulation calcium^{0.0,0.5,0.1} blind^0.5 drosophila^2.7 melanogaster^1.8"
     # add = " RNA^{1.2,1.8,0.1} seq^0.5 genome^0.4 gene^0.4 S2^0.6 CTCF^0.6 dependent^1 nucleosom^{0.4,1.2,0.1} histone^{0.1,1.0,0.2}"
@@ -208,5 +229,8 @@ if __name__ == "__main__":
     # add = " histone seq nucleosom"
     mainQuery = "proteomic^1.2 regulation^1.2 calcium^1.7 " \
                 "drosophila^0.5 melanogaster^0.05 RNA^1 " \
-                "gene^0.8 S2^0.3 male^1.35 wk^{0.01,2.0,0.01}"
+                "gene^0.8 S2^0.3 male^1.35 mRNA^0.51 " + enriched
+    # mainQuery = "proteomic^{0.5,1.2,0.3} regulation^1.2 calcium^{1.0,2.0,0.2} " \
+    #             "drosophila^0.5 melanogaster^{0.01,0.2,0.05} RNA^1 " \
+    #             "gene^{0.5,1.0,0.1} S2^{0.1,0.5,0.1} male^{0.1,1.8,0.2} mRNA^{0.2,0.8,0.04}"
     evaluateQuery(baseAllQueries, mainQuery, baseFormQuery)
