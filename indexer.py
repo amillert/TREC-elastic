@@ -33,9 +33,9 @@ def explodeQueries(query: str) -> Iterator[Dict[str, Dict[str, Dict[str, Any]]]]
     explodeWeights = (
         lambda term, weights: (
             [
-                f"{term}^{x / 10.}"
-                for x in range(*[int(float(wi) * 10.) if i != 1
-                                 else int((float(wi) + .1) * 10.)
+                f"{term}^{x / 1e6}"
+                for x in range(*[int(float(wi) * 1e6) if i != 1
+                                 else int((float(wi) + 1e-6) * 1e6)
                                  for i, wi in enumerate(weights[1:-1].split(","))])
             ] if "{" in weights
             else [f"{term}^{weights}"]
@@ -104,7 +104,8 @@ def prepareElasticIndex(delete: bool = False) -> None:
 def enrichQuery(query: str) -> str:
     print(query)
     add = "RNA seq wK w1118 genome gene S2 protein" + "regulation CTCF dependent nucleosom occupacy ChIP treat histone male chro gram"
-    xd = ES.search(index="biocaddie", body={"query": {"query_string": {"query": query + add}}}, size=100)
+    xd = ES.search(index="biocaddie", body={"query": {"query_string": {"query": query + add}}},
+                   size=100)
     import json
     print(json.dumps(xd, indent=2))
     exit(11)
@@ -116,13 +117,13 @@ def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> 
     bio49results = defaultdict(list)
 
     for i, result in enumerate(open(os.path.join(PROJECT_DIR, "bio49")).readlines()):
-        bio49results[baseAllQueries[i % 16]].append(result.strip())
+        bio49results[baseAllQueries[i % 16]].append(float(result.strip()))
 
     print("\t\tinfAP\t\tinfNDCG")
     print("io49\t%.2f\t\t%.2f" %
           (float(bio49results[baseFormQuery][0]), float(bio49results[baseFormQuery][1])))
 
-    resultsAmount = 500
+    resultsAmount = 1000
     resultsDic = defaultdict(list)
 
     for queryExploded in explodeQueries(query):
@@ -148,26 +149,28 @@ def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> 
          os.listdir(elasticResultsPath)]
 
         ((_, _, infAP), (_, _, infNDCG)) = (line.split() for line in output.split("\n")[:2])
-        # if (float(infAP) >= float(bio49results[baseFormQuery][0]) or
-        #         float(infNDCG) >= float(bio49results[baseFormQuery][1])):
-        # if (float(infAP) + 0.03 >= float(bio49results[baseFormQuery][0]) or
-        #         float(infNDCG) + 0.25 >= float(bio49results[baseFormQuery][1])):
-        # print(queryExploded["query"]["query_string"]["query"])
-        print(f"infAP:\t{infAP}\tinfNDCG:{infNDCG}", end="\n")
-        resultsDic["infAP"].append(infAP)
-        resultsDic["infNDCG"].append(infNDCG)
+        if (float(infAP) >= float(bio49results[baseFormQuery][0]) or
+                float(infNDCG) >= float(bio49results[baseFormQuery][1])):
+            resultsDic["infAP"].append(float(infAP))
+            resultsDic["infNDCG"].append(float(infNDCG))
+            resultsDic["query"].append(queryExploded["query"]["query_string"]["query"])
 
-    print("final printing")
-
-    for i in range(len(resultsDic["infAp"])):
-        dap = resultsDic["infAp"][i] - bio49results[query][0]
-        dndcg = resultsDic["infNDCG"][i] - bio49results[query][1]
-        print(str(i) + '\t%.3f(%s%.3f)\t%.3f(%s%.3f)' %
-              (resultsDic["infAP"][i],
-               "+" if dap >= 0 else "",
-               dap, resultsDic["infNDCGs"][i],
-               "+" if dndcg >= 0 else "",
-               dndcg))
+    for i in range(len(resultsDic["infAP"])):
+        try:
+            dap = resultsDic["infAP"][i] - bio49results[baseFormQuery][0]
+            dndcg = resultsDic["infNDCG"][i] - bio49results[baseFormQuery][1]
+            sap = '' if dap < 0 else '+'
+            snd = '' if dndcg < 0 else '+'
+            print('8\t%.3f(%s%.3f)\t%.3f(%s%.3f) <~ %s' % (
+                resultsDic["infAP"][i],
+                sap,
+                dap,
+                resultsDic["infNDCG"][i],
+                snd,
+                dndcg,
+                resultsDic["query"][i]))
+        except:
+            print(f"for some reason can't do for: {i}")
 
 
 def singleBaseFormQuery(query: str) -> str:
@@ -197,9 +200,13 @@ if __name__ == "__main__":
     baseFormQuery = baseAllQueries[7]
     # query = setWeightsForMainQuery(baseFormQuery)
 
-    mainQuery = "proteomic^0.5 regulation calcium^1.4 blind^0.05 drosophila^0.5 melanogaster^0.5 RNA^1.2 gene^0.8"
     # query = "proteomic^1.2 regulation calcium^{0.0,0.5,0.1} blind^0.5 drosophila^2.7 melanogaster^1.8"
     # add = " RNA^{1.2,1.8,0.1} seq^0.5 genome^0.4 gene^0.4 S2^0.6 CTCF^0.6 dependent^1 nucleosom^{0.4,1.2,0.1} histone^{0.1,1.0,0.2}"
     # query = ' '.join([x for sub in map(lambda x: [x + "^{0.2,1.2,0.2}"], (baseFormQuery + add).split()) for x in sub])
 
+    # add = " RNA seq wK w1118 genome gene S2 protein " # + "regulation CTCF dependent nucleosom occupacy ChIP treat histone male chro gram"
+    # add = " histone seq nucleosom"
+    mainQuery = "proteomic^1.2 regulation^1.2 calcium^1.7 " \
+                "drosophila^0.5 melanogaster^0.05 RNA^1 " \
+                "gene^0.8 S2^0.3 male^1.35 wk^{0.01,2.0,0.01}"
     evaluateQuery(baseAllQueries, mainQuery, baseFormQuery)
