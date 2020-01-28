@@ -1,5 +1,6 @@
 import os
 import subprocess
+import random
 import multiprocessing as mp
 from itertools import cycle, product
 from collections import defaultdict
@@ -18,7 +19,7 @@ ES = es.Elasticsearch(hosts=[{"host": "localhost", "port": 9200}])
 indexBody = {"settings": {"number_of_shards": 1, "number_of_replicas": 1},
              "mappings": {"properties": {
                  "id": {"type": "text"}, "contents": {"type": "text"}}}}
-PROJECT_DIR = os.path.dirname(os.getcwd())
+PROJECT_DIR = os.getcwd()
 
 
 # @profile
@@ -100,6 +101,15 @@ def prepareElasticIndex(delete: bool = False) -> None:
     print(ES.cat.count("biocaddie", params={"format": "text"}))
 
 
+def enrichQuery(query: str) -> str:
+    print(query)
+    add = "RNA seq wK w1118 genome gene S2 protein" + "regulation CTCF dependent nucleosom occupacy ChIP treat histone male chro gram"
+    xd = ES.search(index="biocaddie", body={"query": {"query_string": {"query": query + add}}}, size=100)
+    import json
+    print(json.dumps(xd, indent=2))
+    exit(11)
+
+
 def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> None:
     elasticResultsPath = os.path.join(PROJECT_DIR, "elasticResults")
     baseAllQueries.append("all")
@@ -112,12 +122,13 @@ def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> 
     print("io49\t%.2f\t\t%.2f" %
           (float(bio49results[baseFormQuery][0]), float(bio49results[baseFormQuery][1])))
 
-    resultsAmount = 100
+    resultsAmount = 500
     resultsDic = defaultdict(list)
 
     for queryExploded in explodeQueries(query):
+        # enrichedQuery = enrichQuery(baseFormQuery)
         resultsLines = []
-        result = ES.search(index="biocaddie", body=queryExploded, size=1000)
+        result = ES.search(index="biocaddie", body=queryExploded, size=resultsAmount)
         for i in range(resultsAmount):
             documentId = result["hits"]["hits"][i]["_source"]["id"]
             score = float(result["hits"]["hits"][i]["_score"])
@@ -136,10 +147,17 @@ def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> 
         [os.remove(os.path.join(elasticResultsPath, filePath)) for filePath in
          os.listdir(elasticResultsPath)]
 
-        for line in output.split("\n")[:-1]:
-            (resultType, _, result) = line.split()
-            if resultType in ["infAP", "infNDCG"]:
-                resultsDic[resultType].append(result)
+        ((_, _, infAP), (_, _, infNDCG)) = (line.split() for line in output.split("\n")[:2])
+        # if (float(infAP) >= float(bio49results[baseFormQuery][0]) or
+        #         float(infNDCG) >= float(bio49results[baseFormQuery][1])):
+        # if (float(infAP) + 0.03 >= float(bio49results[baseFormQuery][0]) or
+        #         float(infNDCG) + 0.25 >= float(bio49results[baseFormQuery][1])):
+        # print(queryExploded["query"]["query_string"]["query"])
+        print(f"infAP:\t{infAP}\tinfNDCG:{infNDCG}", end="\n")
+        resultsDic["infAP"].append(infAP)
+        resultsDic["infNDCG"].append(infNDCG)
+
+    print("final printing")
 
     for i in range(len(resultsDic["infAp"])):
         dap = resultsDic["infAp"][i] - bio49results[query][0]
@@ -165,23 +183,23 @@ def setWeightsForMainQuery(query):
     return ' '.join([f"{element}^{eval(f'W{i + 1}')}" for i, element in enumerate(query.split())])
 
 
-W1 = 0.1
-W2 = 1.4
-W3 = 0.8
-W4 = 0.3
-W5 = 0.2
-W6 = 0.4
+W1 = 0.5
+W2 = 1.0
+W3 = 1.4
+W4 = 0.05
+W5 = 0.5
+W6 = 0.5
 
 if __name__ == "__main__":
     # prepareElasticIndex()
     baseAllQueries = obtainBaseFormQueries()
 
     baseFormQuery = baseAllQueries[7]
-    query = setWeightsForMainQuery(baseFormQuery)
+    # query = setWeightsForMainQuery(baseFormQuery)
 
-    # make it look for the best one out of these:
-    # mainQuery = "proteomic^{0.0,2.5,0.1} regulation calcium^{0.1,1.5,0.2} blind^{0.05,0.5,0.1} drosophila^{0.1,0.5,0.1} melanogaster^{0.1,0.5,0.1}"
-    # mainQuery = "proteomic^0.5 regulation calcium^1.4 blind^0.05 drosophila^0.5 melanogaster^0.5"
-    # mainQuery = "proteomic regulation calcium blind drosophila melanogaster"
+    mainQuery = "proteomic^0.5 regulation calcium^1.4 blind^0.05 drosophila^0.5 melanogaster^0.5 RNA^1.2 gene^0.8"
+    # query = "proteomic^1.2 regulation calcium^{0.0,0.5,0.1} blind^0.5 drosophila^2.7 melanogaster^1.8"
+    # add = " RNA^{1.2,1.8,0.1} seq^0.5 genome^0.4 gene^0.4 S2^0.6 CTCF^0.6 dependent^1 nucleosom^{0.4,1.2,0.1} histone^{0.1,1.0,0.2}"
+    # query = ' '.join([x for sub in map(lambda x: [x + "^{0.2,1.2,0.2}"], (baseFormQuery + add).split()) for x in sub])
 
-    evaluateQuery(baseAllQueries, query, baseFormQuery)
+    evaluateQuery(baseAllQueries, mainQuery, baseFormQuery)

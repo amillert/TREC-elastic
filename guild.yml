@@ -17,3 +17,5 @@
           description: weight 1 for the word `drosophila`
         W6:
           description: weight 1 for the word `melanogaster`
+        PROJECT_DIR:
+          description: real directory to the project passed using pwd
