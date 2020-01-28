@@ -99,18 +99,18 @@ def prepareElasticIndex(delete: bool = False) -> None:
     print(ES.cat.count("biocaddie", params={"format": "text"}))
 
 
-def evaluateQuery(allQueries: List[str], query: str) -> None:
+def evaluateQuery(baseAllQueries: List[str], query: str, baseFormQuery: str) -> None:
     cwd = os.getcwd()
-    allQueries.append("all")
+    elasticResultsPath = os.path.join(cwd, "elasticResults")
+    baseAllQueries.append("all")
     bio49results = defaultdict(list)
 
     for i, result in enumerate(open(os.path.join(cwd, "bio49")).readlines()):
-        bio49results[allQueries[i % 16]].append(result.strip())
-
-    print(dict(bio49results))
+        bio49results[baseAllQueries[i % 16]].append(result.strip())
 
     print("\t\tinfAP\t\tinfNDCG")
-    print("io49\t%.2f\t\t%.2f" % (float(bio49results[query][0]), float(bio49results[query][1])))
+    print("io49\t%.2f\t\t%.2f" %
+          (float(bio49results[baseFormQuery][0]), float(bio49results[baseFormQuery][1])))
 
     resultsAmount = 100
     resultsDic = defaultdict(list)
@@ -123,7 +123,6 @@ def evaluateQuery(allQueries: List[str], query: str) -> None:
             score = float(result["hits"]["hits"][i]["_score"])
             resultsLines.append(f"8 \tQ0\t{documentId}\t{i}\t{score}\tES1\n")
 
-        elasticResultsPath = os.path.join(cwd, "elasticResults")
         whichFile = len(os.listdir(elasticResultsPath))
         (open(os.path.join(elasticResultsPath, f"ES_biocaddie_baseline_{whichFile}"), "w+").
          writelines(resultsLines))
@@ -133,6 +132,9 @@ def evaluateQuery(allQueries: List[str], query: str) -> None:
                   check_output(cmd, shell=True).
                   decode("utf-8").
                   replace("\t\t", " "))
+
+        [os.remove(os.path.join(elasticResultsPath, filePath)) for filePath in
+         os.listdir(elasticResultsPath)]
 
         for line in output.split("\n")[:-1]:
             (resultType, _, result) = line.split()
@@ -150,13 +152,36 @@ def evaluateQuery(allQueries: List[str], query: str) -> None:
                dndcg))
 
 
+def singleBaseFormQuery(query: str) -> str:
+    return ' '.join([q.split("^")[0] for q in query.split()])
+
+
+def obtainBaseFormQueries(queriesPath: str = "queries") -> List[str]:
+    allQueries = [x.strip() for x in open(os.path.join(os.getcwd(), queriesPath), "r").readlines()]
+    return [singleBaseFormQuery(query) for query in allQueries]
+
+
+def setWeightsForMainQuery(query):
+    return ' '.join([f"{element}^{eval(f'W{i + 1}')}" for i, element in enumerate(query.split())])
+
+
+W1 = 0.1
+W2 = 1.4
+W3 = 0.8
+W4 = 0.3
+W5 = 0.2
+W6 = 0.4
+
 if __name__ == "__main__":
-    prepareElasticIndex()
-    allQueries = [x.strip() for x in open(os.path.join(os.getcwd(), "queries"), "r").readlines()]
+    # prepareElasticIndex()
+    baseAllQueries = obtainBaseFormQueries()
+
+    baseFormQuery = baseAllQueries[7]
+    query = setWeightsForMainQuery(baseFormQuery)
 
     # make it look for the best one out of these:
-    # mainQuery = "proteomic^{0.0,2.5,0.1} regulation calcium^{0.0,1.5,0.0} blind^{0.05,0.5,0.0.1} drosophila^{0.1,0.5,0.1} melanogaster^{0.1,0.5,0.1}"
+    # mainQuery = "proteomic^{0.0,2.5,0.1} regulation calcium^{0.1,1.5,0.2} blind^{0.05,0.5,0.1} drosophila^{0.1,0.5,0.1} melanogaster^{0.1,0.5,0.1}"
+    # mainQuery = "proteomic^0.5 regulation calcium^1.4 blind^0.05 drosophila^0.5 melanogaster^0.5"
+    # mainQuery = "proteomic regulation calcium blind drosophila melanogaster"
 
-    mainQuery = "proteomic^0.5 regulation calcium^1.4 blind^0.05 drosophila^0.5 melanogaster^0.5"
-    # mainQuery = "proteomic regulation calcium blind d melanogaster"
-    evaluateQuery(allQueries, mainQuery)
+    evaluateQuery(baseAllQueries, query, baseFormQuery)
