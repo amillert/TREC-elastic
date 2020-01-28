@@ -1,0 +1,19 @@
+- model: TREC-elastisearch-evaluator
+  description: Looking for the best weights for the query
+  operations:
+    query-evaluator:
+      description: Not generic at all; for now will work with the query 8, hence 6 weights for all the words in `proteomic regulation calcium blind drosophila melanogaster` query
+      main: indexer
+      flags:
+        W1:
+          description: weight 1 for the word `proteomic`
+        W2:
+          description: weight 1 for the word `regulation`
+        W3:
+          description: weight 1 for the word `calcium`
+        W4:
+          description: weight 1 for the word `blind`
+        W5:
+          description: weight 1 for the word `drosophila`
+        W6:
+          description: weight 1 for the word `melanogaster`
